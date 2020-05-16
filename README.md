@@ -1,7 +1,8 @@
 # Pytorch-YOLOv4
 
 ![](https://img.shields.io/static/v1?label=python&message=3.6|3.7&color=blue)
-![](https://img.shields.io/static/v1?label=pytorch&message=>=0.4&color=<COLOR>)
+![](https://img.shields.io/static/v1?label=pytorch&message=1.4&color=<COLOR>)
+[![](https://img.shields.io/static/v1?label=license&message=Apache2&color=green)](./License.txt)
 
 A minimal PyTorch implementation of YOLOv4.
 - Paper Yolo v4: https://arxiv.org/abs/2004.10934
@@ -10,7 +11,28 @@ A minimal PyTorch implementation of YOLOv4.
 
 
 - [x] Inference
-- [ ] Train
+- [x] Train
+    - [x] Mocaic
+
+```
+├── README.md
+├── dataset.py      dataset
+├── demo.py         demo --> tool/darknet2pytorch
+├── models.py       model for pytorch
+├── train.py        train models.py
+├── cfg.py          cfg.py for train
+├── cfg             cfg --> darknet2pytorch
+├── data            
+├── weight          --> darknet2pytorch
+├── tool
+│   ├── camera.py           a demo camera
+│   ├── coco_annotatin.py       coco dataset generator
+│   ├── config.py
+│   ├── darknet2pytorch.py
+│   ├── region_loss.py
+│   ├── utils.py
+│   └── yolo_layer.py
+```
 
 # Weight
 
@@ -24,12 +46,6 @@ A minimal PyTorch implementation of YOLOv4.
 ```
 python demo.py cfgfile weightfile imgfile
 ```
-
-- [x] Convolution weight reshape
-- [x] Mish activation
-- [x] route number > 2
-- [x] Maxpooling
-- [ ] yololayer
 
 Reference:
 - https://github.com/eriklindernoren/PyTorch-YOLOv3

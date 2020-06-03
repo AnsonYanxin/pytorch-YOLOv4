@@ -141,7 +141,7 @@ def image_data_augmentation(mat, w, h, pleft, ptop, swidth, sheight, flip, dhue,
                 hsv[2] *= dexp
                 hsv[0] += 179 * dhue
                 hsv_src = cv2.merge(hsv)
-                sized = cv2.cvtColor(hsv_src, cv2.COLOR_HSV2RGB)  # HSV to RGB (the same as previous)
+                sized = np.clip(cv2.cvtColor(hsv_src, cv2.COLOR_HSV2RGB), 0, 255)  # HSV to RGB (the same as previous)
             else:
                 sized *= dexp
 
@@ -211,21 +211,22 @@ def filter_truth(bboxes, dx, dy, sx, sy, xd, yd):
 
 def blend_truth_mosaic(out_img, img, bboxes, w, h, cut_x, cut_y, i_mixup,
                        left_shift, right_shift, top_shift, bot_shift):
+    left_shift = min(left_shift, w - cut_x)
+    top_shift = min(top_shift, h - cut_y)
+    right_shift = min(right_shift, cut_x)
+    bot_shift = min(bot_shift, cut_y)
+
     if i_mixup == 0:
         bboxes = filter_truth(bboxes, left_shift, top_shift, cut_x, cut_y, 0, 0)
-
         out_img[:cut_y, :cut_x] = img[top_shift:top_shift + cut_y, left_shift:left_shift + cut_x]
     if i_mixup == 1:
         bboxes = filter_truth(bboxes, cut_x - right_shift, top_shift, w - cut_x, cut_y, cut_x, 0)
-
         out_img[:cut_y, cut_x:] = img[top_shift:top_shift + cut_y, cut_x - right_shift:w - right_shift]
     if i_mixup == 2:
         bboxes = filter_truth(bboxes, left_shift, cut_y - bot_shift, cut_x, h - cut_y, 0, cut_y)
-
         out_img[cut_y:, :cut_x] = img[cut_y - bot_shift:h - bot_shift, left_shift:left_shift + cut_x]
     if i_mixup == 3:
-        bboxes = filter_truth(bboxes, cut_x - right_shift, cut_y - bot_shift, cut_x, h - cut_y, cut_x, cut_y)
-
+        bboxes = filter_truth(bboxes, cut_x - right_shift, cut_y - bot_shift, w - cut_x, h - cut_y, cut_x, cut_y)
         out_img[cut_y:, cut_x:] = img[cut_y - bot_shift:h - bot_shift, cut_x - right_shift:w - right_shift]
 
     return out_img, bboxes
@@ -265,7 +266,7 @@ class Yolo_dataset(Dataset):
     def __getitem__(self, index):
         img_path = list(self.truth.keys())[index]
         bboxes = np.array(self.truth.get(img_path), dtype=np.float)
-        img_path = os.path.join('E:/Dataset', img_path)
+        img_path = os.path.join(self.cfg.dataset_dir, img_path)
         use_mixup = self.cfg.mixup
         if random.randint(0, 1):
             use_mixup = 0
@@ -286,7 +287,7 @@ class Yolo_dataset(Dataset):
             if i != 0:
                 img_path = random.choice(list(self.truth.keys()))
                 bboxes = np.array(self.truth.get(img_path), dtype=np.float)
-                img_path = os.path.join('E:/Dataset', img_path)
+                img_path = os.path.join(self.cfg.dataset_dir, img_path)
             img = cv2.imread(img_path)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             if img is None:
@@ -377,16 +378,19 @@ class Yolo_dataset(Dataset):
         if use_mixup == 3:
             out_bboxes = np.concatenate(out_bboxes, axis=0)
         out_bboxes1 = np.zeros([self.cfg.boxes, 5])
-        out_bboxes1[:min(out_bboxes.shape[0],self.cfg.boxes)] = out_bboxes[:min(out_bboxes.shape[0],self.cfg.boxes)]
+        out_bboxes1[:min(out_bboxes.shape[0], self.cfg.boxes)] = out_bboxes[:min(out_bboxes.shape[0], self.cfg.boxes)]
         return out_img, out_bboxes1
 
 
 if __name__ == "__main__":
     from cfg import Cfg
 
+    random.seed(2020)
+    np.random.seed(2020)
+    Cfg.dataset_dir = '/mnt/e/Dataset'
     dataset = Yolo_dataset(Cfg.train_label, Cfg)
-    for i in range(10000):
-        out_img, out_bboxes = dataset.__getitem__(random.randint(0, 100))
+    for i in range(100):
+        out_img, out_bboxes = dataset.__getitem__(i)
         a = draw_box(out_img.copy(), out_bboxes.astype(np.int32))
-        # plt.imshow(a.astype(np.int32))
-        # plt.show()
+        plt.imshow(a.astype(np.int32))
+        plt.show()

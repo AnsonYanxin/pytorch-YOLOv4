@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 
 class Mish(torch.nn.Module):
@@ -12,21 +13,13 @@ class Mish(torch.nn.Module):
 
 
 class Upsample(nn.Module):
-    def __init__(self, stride=2):
+    def __init__(self):
         super(Upsample, self).__init__()
-        self.stride = stride
 
-    def forward(self, x):
-        stride = self.stride
+    def forward(self, x, target_size):
         assert (x.data.dim() == 4)
-        B = x.data.size(0)
-        C = x.data.size(1)
-        H = x.data.size(2)
-        W = x.data.size(3)
-        ws = stride
-        hs = stride
-        x = x.view(B, C, H, 1, W, 1).expand(B, C, H, stride, W, stride).contiguous().view(B, C, H * stride, W * stride)
-        return x
+        _, _, H, W = target_size
+        return F.interpolate(x, size=(H, W), mode='nearest')
 
 
 class Conv_Bn_Activation(nn.Module):
@@ -229,7 +222,7 @@ class DownSample5(nn.Module):
         return x5
 
 
-class Neek(nn.Module):
+class Neck(nn.Module):
     def __init__(self):
         super().__init__()
         self.conv1 = Conv_Bn_Activation(1024, 512, 1, 1, 'leaky')
@@ -276,14 +269,14 @@ class Neek(nn.Module):
         m1 = self.maxpool1(x3)
         m2 = self.maxpool2(x3)
         m3 = self.maxpool3(x3)
-        spp = torch.cat([m1, m2, m3, x3], dim=1)
+        spp = torch.cat([m3, m2, m1, x3], dim=1)
         # SPP end
         x4 = self.conv4(spp)
         x5 = self.conv5(x4)
         x6 = self.conv6(x5)
         x7 = self.conv7(x6)
         # UP
-        up = self.upsample1(x7)
+        up = self.upsample1(x7, downsample4.size())
         # R 85
         x8 = self.conv8(downsample4)
         # R -1 -3
@@ -297,7 +290,7 @@ class Neek(nn.Module):
         x14 = self.conv14(x13)
 
         # UP
-        up = self.upsample2(x14)
+        up = self.upsample2(x14, downsample3.size())
         # R 54
         x15 = self.conv15(downsample3)
         # R -1 -3
@@ -312,10 +305,10 @@ class Neek(nn.Module):
 
 
 class Yolov4Head(nn.Module):
-    def __init__(self):
+    def __init__(self, output_ch):
         super().__init__()
         self.conv1 = Conv_Bn_Activation(128, 256, 3, 1, 'leaky')
-        self.conv2 = Conv_Bn_Activation(256, 255, 1, 1, 'linear', bn=False, bias=True)
+        self.conv2 = Conv_Bn_Activation(256, output_ch, 1, 1, 'linear', bn=False, bias=True)
         # self.yolo1 = YoloLayer(anchor_mask=[0, 1, 2], num_classes=80,
         #                        anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401],
         #                        num_anchors=9, stride=8)
@@ -330,7 +323,7 @@ class Yolov4Head(nn.Module):
         self.conv7 = Conv_Bn_Activation(256, 512, 3, 1, 'leaky')
         self.conv8 = Conv_Bn_Activation(512, 256, 1, 1, 'leaky')
         self.conv9 = Conv_Bn_Activation(256, 512, 3, 1, 'leaky')
-        self.conv10 = Conv_Bn_Activation(512, 255, 1, 1, 'linear', bn=False, bias=True)
+        self.conv10 = Conv_Bn_Activation(512, output_ch, 1, 1, 'linear', bn=False, bias=True)
         # self.yolo2 = YoloLayer(anchor_mask=[3, 4, 5], num_classes=80,
         #                        anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401],
         #                        num_anchors=9, stride=16)
@@ -345,7 +338,7 @@ class Yolov4Head(nn.Module):
         self.conv15 = Conv_Bn_Activation(512, 1024, 3, 1, 'leaky')
         self.conv16 = Conv_Bn_Activation(1024, 512, 1, 1, 'leaky')
         self.conv17 = Conv_Bn_Activation(512, 1024, 3, 1, 'leaky')
-        self.conv18 = Conv_Bn_Activation(1024, 255, 1, 1, 'linear', bn=False, bias=True)
+        self.conv18 = Conv_Bn_Activation(1024, output_ch, 1, 1, 'linear', bn=False, bias=True)
         # self.yolo3 = YoloLayer(anchor_mask=[6, 7, 8], num_classes=80,
         #                        anchors=[12, 16, 19, 36, 40, 28, 36, 75, 76, 55, 72, 146, 142, 110, 192, 243, 459, 401],
         #                        num_anchors=9, stride=32)
@@ -386,18 +379,32 @@ class Yolov4Head(nn.Module):
 
 
 class Yolov4(nn.Module):
-    def __init__(self):
+    def __init__(self, yolov4conv137weight=None, n_classes=80):
         super().__init__()
+
+        output_ch = (4 + 1 + n_classes) * 3
+
         # backbone
         self.down1 = DownSample1()
         self.down2 = DownSample2()
         self.down3 = DownSample3()
         self.down4 = DownSample4()
         self.down5 = DownSample5()
-        # neek
-        self.neek = Neek()
+        # neck
+        self.neck = Neck()
+        # yolov4conv137
+        if yolov4conv137weight:
+            _model = nn.Sequential(self.down1, self.down2, self.down3, self.down4, self.down5, self.neck)
+            pretrained_dict = torch.load(yolov4conv137weight)
+
+            model_dict = _model.state_dict()
+            # 1. filter out unnecessary keys
+            pretrained_dict = {k1: v for (k, v), k1 in zip(pretrained_dict.items(), model_dict)}
+            # 2. overwrite entries in the existing state dict
+            model_dict.update(pretrained_dict)
+            _model.load_state_dict(model_dict)
         # head
-        self.head = Yolov4Head()
+        self.head = Yolov4Head(output_ch)
 
     def forward(self, input):
         d1 = self.down1(input)
@@ -406,42 +413,52 @@ class Yolov4(nn.Module):
         d4 = self.down4(d3)
         d5 = self.down5(d4)
 
-        x20, x13, x6 = self.neek(d5, d4, d3)
+        x20, x13, x6 = self.neck(d5, d4, d3)
 
         output = self.head(x20, x13, x6)
         return output
 
 
 if __name__ == "__main__":
-    model = Yolov4()
+    import sys
+    from PIL import Image
 
-    pretrained_dict = torch.load('weight/yolov4.pth')
-    model_dict = model.state_dict()
-    # 1. filter out unnecessary keys
-    pretrained_dict = {k1: v for (k, v), k1 in zip(pretrained_dict.items(), model_dict)}
-    # 2. overwrite entries in the existing state dict
-    model_dict.update(pretrained_dict)
-    model.load_state_dict(model_dict)
-
-    num_classes = 80
-    if num_classes == 20:
-        namesfile = 'data/voc.names'
-    elif num_classes == 80:
-        namesfile = 'data/coco.names'
+    namesfile = None
+    if len(sys.argv) == 4:
+        n_classes = int(sys.argv[1])
+        weightfile = sys.argv[2]
+        imgfile = sys.argv[3]
+    elif len(sys.argv) == 5:
+        n_classes = int(sys.argv[1])
+        weightfile = sys.argv[2]
+        imgfile = sys.argv[3]
+        namesfile = sys.argv[4]
     else:
-        namesfile = 'data/names'
+        print('Usage: ')
+        print('  python models.py num_classes weightfile imgfile namefile')
+
+    model = Yolov4(n_classes=n_classes)
+
+    pretrained_dict = torch.load(weightfile, map_location=torch.device('cpu'))
+    model.load_state_dict(pretrained_dict)
+
+    if namesfile == None:
+        if n_classes == 20:
+            namesfile = 'data/voc.names'
+        elif n_classes == 80:
+            namesfile = 'data/coco.names'
+        else:
+            print("please give namefile")
 
     use_cuda = 0
     if use_cuda:
         model.cuda()
 
-    from PIL import Image
-
-    img = Image.open("data/dog.jpg").convert('RGB')
+    img = Image.open(imgfile).convert('RGB')
     sized = img.resize((608, 608))
     from tool.utils import *
 
-    boxes = do_detect(model, sized, 0.5, 0.4, use_cuda)
+    boxes = do_detect(model, sized, 0.5, n_classes,0.4, use_cuda)
 
     class_names = load_class_names(namesfile)
     plot_boxes(img, boxes, 'predictions.jpg', class_names)
